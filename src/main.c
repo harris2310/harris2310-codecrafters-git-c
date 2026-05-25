@@ -42,6 +42,9 @@ int main(int argc, char *argv[])
 
         printf("Initialized git directory\n");
     }
+    else if (strcmp(command, "cat-file"))
+    {
+    }
     else
     {
         fprintf(stderr, "Unknown command %s\n", command);

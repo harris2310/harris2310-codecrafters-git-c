@@ -15,10 +15,10 @@ int decompress(char *file_contents, char *raw_buffer)
     memset(&strm, 0, sizeof(strm));
 
     strm.next_in = file_contents;
-    strm.avail_in = sizeof(file_contents);
+    strm.avail_in = strlen(file_contents);
 
     strm.next_out = output;
-    strm.avail_out = sizeof(output);
+    strm.avail_out = strlen(output);
 
     // initialize inflate
     if (inflateInit(&strm) != Z_OK)
@@ -103,23 +103,25 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Hash too small");
             return 1;
         }
-        char hash_prefix[2];
+        char hash_prefix[3];
         strncpy(hash_prefix, hash, 2);
+        hash_prefix[2] = '\0';
         sprintf(hash_buffer, "./.git/objects/%s/%s", hash_prefix, hash + 2);
-        FILE *object_file = fopen(hash_buffer, "r");
+        FILE *object_file = fopen(hash_buffer, "rb");
         if (object_file == NULL)
         {
             fprintf(stderr, "Object couldnt be opened");
             return 1;
         }
+        fseek(object_file, 0, SEEK_END);
+        long fsize = ftell(object_file);
+        fseek(object_file, 0, SEEK_SET); /* same as rewind(f); */
 
-        char contents_buffer[2048];
+        char *contents_buffer = malloc(fsize + 1);
+        fread(contents_buffer, fsize, 1, object_file);
+        fclose(object_file);
 
-        while (fgets(contents_buffer, sizeof(contents_buffer), object_file) != NULL)
-        {
-            printf("%s", object_file);
-        }
-        char *raw_buffer;
+        char *raw_buffer = malloc(4096);
         decompress(contents_buffer, raw_buffer);
         printf("%s", raw_buffer);
         return 1;

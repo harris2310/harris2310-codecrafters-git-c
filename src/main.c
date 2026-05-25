@@ -42,8 +42,27 @@ int main(int argc, char *argv[])
 
         printf("Initialized git directory\n");
     }
-    else if (strcmp(command, "cat-file"))
+    else if (strcmp(command, "cat-file") == 0)
     {
+        if (argc < 4)
+        {
+            fprintf(stderr, "too few params for the command");
+        }
+        const char *flag = argv[2];
+        if (!strcmp(flag, "-p") == 0)
+        {
+            fprintf(stderr, "Wrong flag");
+            return 1;
+        }
+        const char *hash = argv[3];
+        char hashBuffer[1024];
+        sprintf(hashBuffer, "./.git/objects/%s", hash);
+        FILE *objectFile = fopen(hashBuffer, "r");
+        if (objectFile == NULL)
+        {
+            fprintf(stderr, "Object couldnt be opened");
+            return 1;
+        }
     }
     else
     {

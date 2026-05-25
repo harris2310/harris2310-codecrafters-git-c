@@ -2,7 +2,49 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <zlib.h>
 #include <errno.h>
+
+int decompress(char *file_contents, char *raw_buffer)
+{
+    printf("%s", file_contents);
+    // output buffer
+    unsigned char output[4096];
+
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+
+    strm.next_in = file_contents;
+    strm.avail_in = sizeof(file_contents);
+
+    strm.next_out = output;
+    strm.avail_out = sizeof(output);
+
+    // initialize inflate
+    if (inflateInit(&strm) != Z_OK)
+    {
+        printf("inflateInit failed\n");
+        return 0;
+    }
+
+    int ret = inflate(&strm, Z_FINISH);
+    printf("%s", output);
+    if (ret != Z_STREAM_END)
+    {
+        printf("inflate failed: %d\n", ret);
+        inflateEnd(&strm);
+        return 0;
+    }
+
+    // null terminate if text
+    output[strm.total_out] = '\0';
+
+    strcpy(raw_buffer, output);
+
+    printf("Decompressed:\n%s\n", output);
+
+    inflateEnd(&strm);
+}
 
 int main(int argc, char *argv[])
 {
@@ -55,14 +97,32 @@ int main(int argc, char *argv[])
             return 1;
         }
         const char *hash = argv[3];
-        char hashBuffer[1024];
-        sprintf(hashBuffer, "./.git/objects/%s", hash);
-        FILE *objectFile = fopen(hashBuffer, "r");
-        if (objectFile == NULL)
+        char hash_buffer[1024];
+        if (strlen(hash) < 3)
+        {
+            fprintf(stderr, "Hash too small");
+            return 1;
+        }
+        char hash_prefix[2];
+        strncpy(hash_prefix, hash, 2);
+        sprintf(hash_buffer, "./.git/objects/%s/%s", hash_prefix, hash + 2);
+        FILE *object_file = fopen(hash_buffer, "r");
+        if (object_file == NULL)
         {
             fprintf(stderr, "Object couldnt be opened");
             return 1;
         }
+
+        char contents_buffer[2048];
+
+        while (fgets(contents_buffer, sizeof(contents_buffer), object_file) != NULL)
+        {
+            printf("%s", object_file);
+        }
+        char *raw_buffer;
+        decompress(contents_buffer, raw_buffer);
+        printf("%s", raw_buffer);
+        return 1;
     }
     else
     {

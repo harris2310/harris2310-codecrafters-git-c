@@ -4,46 +4,88 @@
 #include <sys/stat.h>
 #include <zlib.h>
 #include <errno.h>
+#include <regex.h>
 
-int decompress(char *file_contents, char *raw_buffer)
+int decompress(const unsigned char *file_contents, size_t file_size, unsigned char **raw_buffer, size_t *raw_capacity)
 {
-    printf("%s", file_contents);
-    // output buffer
-    unsigned char output[4096];
-
     z_stream strm;
     memset(&strm, 0, sizeof(strm));
 
-    strm.next_in = file_contents;
-    strm.avail_in = strlen(file_contents);
+    strm.next_in = (unsigned char *)file_contents;
+    strm.avail_in = (uInt)file_size;
+    strm.next_out = *raw_buffer;
+    strm.avail_out = (uInt)(*raw_capacity);
 
-    strm.next_out = output;
-    strm.avail_out = strlen(output);
-
-    // initialize inflate
     if (inflateInit(&strm) != Z_OK)
     {
-        printf("inflateInit failed\n");
-        return 0;
+        fprintf(stderr, "inflateInit failed\n");
+        return -1;
     }
 
-    int ret = inflate(&strm, Z_FINISH);
-    printf("%s", output);
-    if (ret != Z_STREAM_END)
+    int ret;
+    while (1)
     {
-        printf("inflate failed: %d\n", ret);
+        ret = inflate(&strm, Z_NO_FLUSH);
+        if (ret == Z_STREAM_END)
+            break;
+
+        if (ret == Z_OK)
+        {
+            if (strm.avail_out == 0)
+            {
+                /* need more output space: grow buffer */
+                size_t used = strm.total_out;
+                size_t new_cap = (*raw_capacity) * 2;
+                unsigned char *new_buf = realloc(*raw_buffer, new_cap);
+                if (!new_buf)
+                {
+                    fprintf(stderr, "memory allocation failed\n");
+                    inflateEnd(&strm);
+                    return -1;
+                }
+                *raw_buffer = new_buf;
+                *raw_capacity = new_cap;
+                strm.next_out = *raw_buffer + used;
+                strm.avail_out = (uInt)(*raw_capacity - used);
+                continue;
+            }
+            /* otherwise continue decompressing */
+            continue;
+        }
+
+        /* handle buffer error by growing if possible */
+        if (ret == Z_BUF_ERROR)
+        {
+            if (strm.avail_out == 0)
+            {
+                size_t used = strm.total_out;
+                size_t new_cap = (*raw_capacity) * 2;
+                unsigned char *new_buf = realloc(*raw_buffer, new_cap);
+                if (!new_buf)
+                {
+                    fprintf(stderr, "memory allocation failed\n");
+                    inflateEnd(&strm);
+                    return -1;
+                }
+                *raw_buffer = new_buf;
+                *raw_capacity = new_cap;
+                strm.next_out = *raw_buffer + used;
+                strm.avail_out = (uInt)(*raw_capacity - used);
+                continue;
+            }
+        }
+
+        /* any other error is fatal */
+        fprintf(stderr, "inflate failed: %d\n", ret);
         inflateEnd(&strm);
-        return 0;
+        return -1;
     }
 
-    // null terminate if text
-    output[strm.total_out] = '\0';
-
-    strcpy(raw_buffer, output);
-
-    printf("Decompressed:\n%s\n", output);
+    size_t out_len = strm.total_out;
+    /* leave buffer as raw bytes (may contain NULs) */
 
     inflateEnd(&strm);
+    return (int)out_len;
 }
 
 int main(int argc, char *argv[])
@@ -88,12 +130,13 @@ int main(int argc, char *argv[])
     {
         if (argc < 4)
         {
-            fprintf(stderr, "too few params for the command");
+            fprintf(stderr, "too few params for the command\n");
+            return 1;
         }
         const char *flag = argv[2];
-        if (!strcmp(flag, "-p") == 0)
+        if (strcmp(flag, "-p") != 0)
         {
-            fprintf(stderr, "Wrong flag");
+            fprintf(stderr, "Wrong flag\n");
             return 1;
         }
         const char *hash = argv[3];
@@ -115,16 +158,55 @@ int main(int argc, char *argv[])
         }
         fseek(object_file, 0, SEEK_END);
         long fsize = ftell(object_file);
-        fseek(object_file, 0, SEEK_SET); /* same as rewind(f); */
+        fseek(object_file, 0, SEEK_SET);
 
-        char *contents_buffer = malloc(fsize + 1);
-        fread(contents_buffer, fsize, 1, object_file);
+        char *contents_buffer = malloc(fsize);
+        if (!contents_buffer)
+        {
+            fprintf(stderr, "memory allocation failed\n");
+            fclose(object_file);
+            return 1;
+        }
+        size_t read = fread(contents_buffer, 1, fsize, object_file);
         fclose(object_file);
+        if (read != (size_t)fsize)
+        {
+            fprintf(stderr, "failed to read object file\n");
+            free(contents_buffer);
+            return 1;
+        }
 
-        char *raw_buffer = malloc(4096);
-        decompress(contents_buffer, raw_buffer);
-        printf("%s", raw_buffer);
-        return 1;
+        size_t raw_capacity = 65536;
+        unsigned char *raw_buffer = malloc(raw_capacity);
+        if (!raw_buffer)
+        {
+            fprintf(stderr, "memory allocation failed\n");
+            free(contents_buffer);
+            return 1;
+        }
+
+        int out_len = decompress((unsigned char *)contents_buffer, (size_t)fsize, &raw_buffer, &raw_capacity);
+        if (out_len < 0)
+        {
+            free(contents_buffer);
+            free(raw_buffer);
+            return 1;
+        }
+        regex_t rx;
+        int value;
+        regmatch_t match;
+
+        value = regcomp(&rx, "blob .+[0-9]", REG_EXTENDED);
+        if (value != 0)
+        {
+            fprintf(stderr, "problem compiling regex");
+            return 0;
+        }
+        int whereEnd = regexec(&rx, raw_buffer, 1, &match, 0);
+        fwrite(raw_buffer + match.rm_eo, 1, out_len, stdout);
+        free(contents_buffer);
+        free(raw_buffer);
+        return 0;
     }
     else
     {

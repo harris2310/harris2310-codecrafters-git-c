@@ -5,6 +5,7 @@
 #include <zlib.h>
 #include <errno.h>
 #include <regex.h>
+#include <openssl/sha.h>
 
 int decompress(const unsigned char *file_contents, size_t file_size, unsigned char **raw_buffer, size_t *raw_capacity)
 {
@@ -207,6 +208,22 @@ int main(int argc, char *argv[])
         free(contents_buffer);
         free(raw_buffer);
         return 0;
+    }
+    else if (strcmp(command, "hash-file") == 0)
+    {
+        if (argc < 4)
+        {
+            fprintf(stderr, "too few params for the command\n");
+            return 1;
+        }
+        const char *flag = argv[2];
+        if (strcmp(flag, "-w") != 0)
+        {
+            fprintf(stderr, "Wrong flag\n");
+            return 1;
+        }
+        const char *file_name = argv[3];
+        fopen(file_name, "r");
     }
     else
     {

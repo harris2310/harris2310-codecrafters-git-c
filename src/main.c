@@ -203,7 +203,7 @@ int main(int argc, char *argv[])
             return 0;
         }
         int whereEnd = regexec(&rx, raw_buffer, 1, &match, 0);
-        fwrite(raw_buffer + match.rm_eo, 1, out_len, stdout);
+        fwrite(raw_buffer + match.rm_eo + 1, 1, out_len - match.rm_eo - 1, stdout);
         free(contents_buffer);
         free(raw_buffer);
         return 0;

@@ -89,7 +89,60 @@ int decompress(const unsigned char *file_contents, size_t file_size, unsigned ch
     return (int)out_len;
 }
 
-// int compress(const unsigned char *de_file_contents, size_t file_size) {}
+int compressFile(const unsigned char *final_file_contents, size_t file_size, unsigned char **raw_buffer, size_t *raw_capacity)
+{
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+
+    strm.next_in = (unsigned char *)final_file_contents;
+    strm.avail_in = (uInt)file_size;
+    strm.next_out = *raw_buffer;
+    strm.avail_out = (uInt)(*raw_capacity);
+
+    if (deflateInit(&strm, 1) != Z_OK)
+    {
+        fprintf(stderr, "deflateInit failed\n");
+        return -1;
+    }
+
+    int ret;
+    do
+    {
+        ret = deflate(&strm, Z_FINISH);
+
+        if (ret == Z_OK || ret == Z_BUF_ERROR)
+        {
+            if (strm.avail_out == 0)
+            {
+                size_t used = strm.total_out;
+                size_t new_cap = (*raw_capacity) * 2;
+                unsigned char *new_buf = realloc(*raw_buffer, new_cap);
+                if (!new_buf)
+                {
+                    fprintf(stderr, "memory allocation failed\n");
+                    deflateEnd(&strm);
+                    return -1;
+                }
+                *raw_buffer = new_buf;
+                *raw_capacity = new_cap;
+                strm.next_out = *raw_buffer + used;
+                strm.avail_out = (uInt)(*raw_capacity - used);
+            }
+        }
+        else if (ret != Z_STREAM_END)
+        {
+            fprintf(stderr, "deflate failed: %d\n", ret);
+            deflateEnd(&strm);
+            return -1;
+        }
+
+    } while (ret != Z_STREAM_END);
+
+    size_t out_len = strm.total_out;
+    deflateEnd(&strm);
+
+    return (int)out_len;
+}
 
 int main(int argc, char *argv[])
 {
@@ -211,7 +264,7 @@ int main(int argc, char *argv[])
         free(raw_buffer);
         return 0;
     }
-    else if (strcmp(command, "hash-file") == 0)
+    else if (strcmp(command, "hash-object") == 0)
     {
         if (argc < 4)
         {
@@ -252,15 +305,39 @@ int main(int argc, char *argv[])
         }
 
         char final_uncompr_file[4096];
+        size_t cap = 8192;
+        unsigned char *final_compr_file = malloc(cap);
+        size_t final_cmpr_len = cap;
         char contents_prefix[128] = {0};
         snprintf(contents_prefix, sizeof(contents_prefix), "blob %d", read);
+        size_t final_len = strlen(contents_prefix) + 1 + read;
         memcpy(final_uncompr_file, contents_prefix, strlen(contents_prefix) + 1);
         memcpy(final_uncompr_file + strlen(contents_prefix) + 1, contents_buffer, read);
-        for (size_t i = 0; i < 50; i++)
+        unsigned char hash[40];
+        char hash_str[100];
+        SHA1(final_uncompr_file, final_len, hash);
+        for (int i = 0; i < 20; i++)
         {
-            printf("%02x ", (unsigned char)final_uncompr_file[i]);
+            sprintf(hash_str + i * 2, "%02x", hash[i]);
         }
-        printf("\n");
+        compressFile(final_uncompr_file, final_len, &final_compr_file, &final_cmpr_len);
+        hash_str[40] = '\0';
+        char hash_prefix[64];
+        strncpy(hash_prefix, hash_str, 2);
+        char path[1024];
+        sprintf(path, ".git/objects/%s/%s", hash_prefix, hash_str + 2);
+        char dir_to_write[64];
+        sprintf(dir_to_write, ".git/objects/%s", hash_prefix);
+        printf("%s", hash_str);
+        mkdir(dir_to_write, 0755);
+        FILE *fptr = fopen(path, "wb");
+        if (fptr == NULL)
+        {
+            perror("an error occured");
+            return 0;
+        }
+        fwrite(final_compr_file, sizeof(int), final_cmpr_len, fptr);
+        return 0;
     }
     else
     {

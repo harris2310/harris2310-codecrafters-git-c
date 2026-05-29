@@ -89,7 +89,7 @@ int decompress(const unsigned char *file_contents, size_t file_size, unsigned ch
     return (int)out_len;
 }
 
-int compress(const unsigned char *de_file_contents, size_t file_size) {}
+// int compress(const unsigned char *de_file_contents, size_t file_size) {}
 
 int main(int argc, char *argv[])
 {
@@ -228,7 +228,7 @@ int main(int argc, char *argv[])
         FILE *input_file = fopen(file_name, "r");
         if (input_file == NULL)
         {
-            fprintf("file could not be opened");
+            fprintf(stderr, "file could not be opened");
             return 0;
         }
         fseek(input_file, 0, SEEK_END);
@@ -250,6 +250,17 @@ int main(int argc, char *argv[])
             free(contents_buffer);
             return 1;
         }
+
+        char final_uncompr_file[4096];
+        char contents_prefix[128] = {0};
+        snprintf(contents_prefix, sizeof(contents_prefix), "blob %d", read);
+        memcpy(final_uncompr_file, contents_prefix, strlen(contents_prefix) + 1);
+        memcpy(final_uncompr_file + strlen(contents_prefix) + 1, contents_buffer, read);
+        for (size_t i = 0; i < 50; i++)
+        {
+            printf("%02x ", (unsigned char)final_uncompr_file[i]);
+        }
+        printf("\n");
     }
     else
     {

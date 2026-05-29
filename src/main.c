@@ -89,6 +89,8 @@ int decompress(const unsigned char *file_contents, size_t file_size, unsigned ch
     return (int)out_len;
 }
 
+int compress(const unsigned char *de_file_contents, size_t file_size) {}
+
 int main(int argc, char *argv[])
 {
     // Disable output buffering
@@ -223,7 +225,31 @@ int main(int argc, char *argv[])
             return 1;
         }
         const char *file_name = argv[3];
-        fopen(file_name, "r");
+        FILE *input_file = fopen(file_name, "r");
+        if (input_file == NULL)
+        {
+            fprintf("file could not be opened");
+            return 0;
+        }
+        fseek(input_file, 0, SEEK_END);
+        long fsize = ftell(input_file);
+        fseek(input_file, 0, SEEK_SET);
+
+        char *contents_buffer = malloc(fsize);
+        if (!contents_buffer)
+        {
+            fprintf(stderr, "memory allocation failed\n");
+            fclose(input_file);
+            return 1;
+        }
+        size_t read = fread(contents_buffer, 1, fsize, input_file);
+        fclose(input_file);
+        if (read != (size_t)fsize)
+        {
+            fprintf(stderr, "failed to read object file\n");
+            free(contents_buffer);
+            return 1;
+        }
     }
     else
     {

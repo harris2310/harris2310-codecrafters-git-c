@@ -89,6 +89,55 @@ int decompress(const unsigned char *file_contents, size_t file_size, unsigned ch
     return (int)out_len;
 }
 
+int find_and_read_object(const char *hash, char *contents_buffer)
+{
+    char hash_buffer[1024];
+    if (strlen(hash) < 3)
+    {
+        fprintf(stderr, "Hash too small");
+        return 1;
+    }
+    char hash_prefix[3];
+    strncpy(hash_prefix, hash, 2);
+    hash_prefix[2] = '\0';
+    sprintf(hash_buffer, "./.git/objects/%s/%s", hash_prefix, hash + 2);
+    FILE *object_file = fopen(hash_buffer, "rb");
+    if (object_file == NULL)
+    {
+        fprintf(stderr, "Object couldnt be opened");
+        return 1;
+    }
+    fseek(object_file, 0, SEEK_END);
+    long fsize = ftell(object_file);
+    fseek(object_file, 0, SEEK_SET);
+    size_t read = fread(contents_buffer, 1, fsize, object_file);
+    fclose(object_file);
+    if (read != (size_t)fsize)
+    {
+        fprintf(stderr, "failed to read object file\n");
+        free(contents_buffer);
+        return 1;
+    }
+
+    size_t raw_capacity = 65536;
+    unsigned char *raw_buffer = malloc(raw_capacity);
+    if (!raw_buffer)
+    {
+        fprintf(stderr, "memory allocation failed\n");
+        free(contents_buffer);
+        return 1;
+    }
+
+    int out_len = decompress((unsigned char *)contents_buffer, (size_t)fsize, &raw_buffer, &raw_capacity);
+    if (out_len < 0)
+    {
+        free(contents_buffer);
+        free(raw_buffer);
+        return 1;
+    }
+    return out_len;
+}
+
 int compressFile(const unsigned char *final_file_contents, size_t file_size, unsigned char **raw_buffer, size_t *raw_capacity)
 {
     z_stream strm;
@@ -196,62 +245,24 @@ int main(int argc, char *argv[])
             return 1;
         }
         const char *hash = argv[3];
-        char hash_buffer[1024];
-        if (strlen(hash) < 3)
+        unsigned long int memory_size = 65536;
+        char *contents_buffer = malloc(memory_size);
+        int out_len = find_and_read_object(hash, contents_buffer);
+        if (!out_len)
         {
-            fprintf(stderr, "Hash too small");
-            return 1;
+            fprintf(stderr, "problem finding the file or decompressing");
+            return 0;
         }
-        char hash_prefix[3];
-        strncpy(hash_prefix, hash, 2);
-        hash_prefix[2] = '\0';
-        sprintf(hash_buffer, "./.git/objects/%s/%s", hash_prefix, hash + 2);
-        FILE *object_file = fopen(hash_buffer, "rb");
-        if (object_file == NULL)
-        {
-            fprintf(stderr, "Object couldnt be opened");
-            return 1;
-        }
-        fseek(object_file, 0, SEEK_END);
-        long fsize = ftell(object_file);
-        fseek(object_file, 0, SEEK_SET);
-
-        char *contents_buffer = malloc(fsize);
-        if (!contents_buffer)
-        {
-            fprintf(stderr, "memory allocation failed\n");
-            fclose(object_file);
-            return 1;
-        }
-        size_t read = fread(contents_buffer, 1, fsize, object_file);
-        fclose(object_file);
-        if (read != (size_t)fsize)
-        {
-            fprintf(stderr, "failed to read object file\n");
-            free(contents_buffer);
-            return 1;
-        }
-
-        size_t raw_capacity = 65536;
-        unsigned char *raw_buffer = malloc(raw_capacity);
+        regex_t rx;
+        int value;
+        regmatch_t match;
+        unsigned char *raw_buffer = malloc(1024);
         if (!raw_buffer)
         {
             fprintf(stderr, "memory allocation failed\n");
             free(contents_buffer);
             return 1;
         }
-
-        int out_len = decompress((unsigned char *)contents_buffer, (size_t)fsize, &raw_buffer, &raw_capacity);
-        if (out_len < 0)
-        {
-            free(contents_buffer);
-            free(raw_buffer);
-            return 1;
-        }
-        regex_t rx;
-        int value;
-        regmatch_t match;
-
         value = regcomp(&rx, "blob .+[0-9]", REG_EXTENDED);
         if (value != 0)
         {
@@ -338,6 +349,29 @@ int main(int argc, char *argv[])
         }
         fwrite(final_compr_file, sizeof(int), final_cmpr_len, fptr);
         return 0;
+    }
+    else if (strcmp(command, "ls-tree") == 0)
+    {
+        if (argc < 4)
+        {
+            fprintf(stderr, "too few params for the command\n");
+            return 1;
+        }
+        const char *flag = argv[2];
+        if (strcmp(flag, "--name-only") != 0)
+        {
+            fprintf(stderr, "Wrong flag\n");
+            return 1;
+        }
+        const char *hash = argv[3];
+        unsigned long int memory_size = 65536;
+        char *contents_buffer = malloc(memory_size);
+        int out_len = find_and_read_object(hash, contents_buffer);
+        if (!out_len)
+        {
+            fprintf(stderr, "problem finding the file or decompressing");
+            return 0;
+        }
     }
     else
     {

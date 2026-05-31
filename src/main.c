@@ -7,7 +7,7 @@
 #include <regex.h>
 #include <openssl/sha.h>
 
-int decompress(const unsigned char *file_contents, size_t file_size, unsigned char **raw_buffer, size_t *raw_capacity)
+int decompress(const unsigned char *file_contents, size_t file_size, char **raw_buffer, size_t *raw_capacity)
 {
     z_stream strm;
     memset(&strm, 0, sizeof(strm));
@@ -89,7 +89,7 @@ int decompress(const unsigned char *file_contents, size_t file_size, unsigned ch
     return (int)out_len;
 }
 
-int find_and_read_object(const char *hash, char *contents_buffer)
+int find_and_read_object(const char *hash, char **uncompressed_buffer)
 {
     char hash_buffer[1024];
     if (strlen(hash) < 3)
@@ -110,28 +110,29 @@ int find_and_read_object(const char *hash, char *contents_buffer)
     fseek(object_file, 0, SEEK_END);
     long fsize = ftell(object_file);
     fseek(object_file, 0, SEEK_SET);
-    size_t read = fread(contents_buffer, 1, fsize, object_file);
+    size_t raw_capacity = 65536;
+    unsigned char *raw_buffer = malloc(raw_capacity);
+
+    size_t read = fread(raw_buffer, 1, fsize, object_file);
     fclose(object_file);
     if (read != (size_t)fsize)
     {
         fprintf(stderr, "failed to read object file\n");
-        free(contents_buffer);
+        free(raw_buffer);
         return 1;
     }
 
-    size_t raw_capacity = 65536;
-    unsigned char *raw_buffer = malloc(raw_capacity);
     if (!raw_buffer)
     {
         fprintf(stderr, "memory allocation failed\n");
-        free(contents_buffer);
+        free(raw_buffer);
         return 1;
     }
 
-    int out_len = decompress((unsigned char *)contents_buffer, (size_t)fsize, &raw_buffer, &raw_capacity);
+    int out_len = decompress(raw_buffer, (size_t)fsize, uncompressed_buffer, &raw_capacity);
     if (out_len < 0)
     {
-        free(contents_buffer);
+        free(uncompressed_buffer);
         free(raw_buffer);
         return 1;
     }
@@ -246,8 +247,8 @@ int main(int argc, char *argv[])
         }
         const char *hash = argv[3];
         unsigned long int memory_size = 65536;
-        char *contents_buffer = malloc(memory_size);
-        int out_len = find_and_read_object(hash, contents_buffer);
+        char *uncompressed_contents = malloc(memory_size);
+        int out_len = find_and_read_object(hash, &uncompressed_contents);
         if (!out_len)
         {
             fprintf(stderr, "problem finding the file or decompressing");
@@ -256,23 +257,15 @@ int main(int argc, char *argv[])
         regex_t rx;
         int value;
         regmatch_t match;
-        unsigned char *raw_buffer = malloc(1024);
-        if (!raw_buffer)
-        {
-            fprintf(stderr, "memory allocation failed\n");
-            free(contents_buffer);
-            return 1;
-        }
         value = regcomp(&rx, "blob .+[0-9]", REG_EXTENDED);
         if (value != 0)
         {
             fprintf(stderr, "problem compiling regex");
             return 0;
         }
-        int whereEnd = regexec(&rx, raw_buffer, 1, &match, 0);
-        fwrite(raw_buffer + match.rm_eo + 1, 1, out_len - match.rm_eo - 1, stdout);
-        free(contents_buffer);
-        free(raw_buffer);
+        int whereEnd = regexec(&rx, uncompressed_contents, 1, &match, 0);
+        fwrite(uncompressed_contents + match.rm_eo + 1, 1, out_len - match.rm_eo - 1, stdout);
+        free(uncompressed_contents);
         return 0;
     }
     else if (strcmp(command, "hash-object") == 0)
@@ -365,14 +358,26 @@ int main(int argc, char *argv[])
         }
         const char *hash = argv[3];
         unsigned long int memory_size = 65536;
-        char *contents_buffer = malloc(memory_size);
-        int out_len = find_and_read_object(hash, contents_buffer);
+        char *uncompressed_contents = malloc(memory_size);
+        int out_len = find_and_read_object(hash, &uncompressed_contents);
         if (!out_len)
         {
             fprintf(stderr, "problem finding the file or decompressing");
             return 0;
         }
-        printf("%s", contents_buffer);
+        regex_t rx;
+        int value;
+        regmatch_t match;
+        value = regcomp(&rx, "tree .+[0-9]", REG_EXTENDED);
+        if (value != 0)
+        {
+            fprintf(stderr, "problem compiling regex");
+            return 0;
+        }
+        int whereEnd = regexec(&rx, uncompressed_contents, 1, &match, 0);
+        fwrite(uncompressed_contents + match.rm_eo + 1, 1, out_len - match.rm_eo - 1, stdout);
+        free(uncompressed_contents);
+        return 0;
     }
     else
     {

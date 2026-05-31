@@ -372,6 +372,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "problem finding the file or decompressing");
             return 0;
         }
+        printf("%s", contents_buffer);
     }
     else
     {

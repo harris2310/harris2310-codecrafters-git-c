@@ -139,7 +139,7 @@ int find_and_read_object(const char *hash, char **uncompressed_buffer)
     return out_len;
 }
 
-int compressFile(const unsigned char *final_file_contents, size_t file_size, unsigned char **raw_buffer, size_t *raw_capacity)
+int compress_file(const unsigned char *final_file_contents, size_t file_size, unsigned char **raw_buffer, size_t *raw_capacity)
 {
     z_stream strm;
     memset(&strm, 0, sizeof(strm));
@@ -324,7 +324,7 @@ int main(int argc, char *argv[])
         {
             sprintf(hash_str + i * 2, "%02x", hash[i]);
         }
-        compressFile(final_uncompr_file, final_len, &final_compr_file, &final_cmpr_len);
+        compress_file(final_uncompr_file, final_len, &final_compr_file, &final_cmpr_len);
         hash_str[40] = '\0';
         char hash_prefix[64];
         strncpy(hash_prefix, hash_str, 2);
@@ -365,17 +365,45 @@ int main(int argc, char *argv[])
             fprintf(stderr, "problem finding the file or decompressing");
             return 0;
         }
-        regex_t rx;
-        int value;
-        regmatch_t match;
-        value = regcomp(&rx, "tree .+[0-9]", REG_EXTENDED);
-        if (value != 0)
+        char *data = uncompressed_contents;
+
+        // find end of "tree <size>"
+        char *p = memchr(data, '\0', out_len);
+        if (!p)
         {
-            fprintf(stderr, "problem compiling regex");
-            return 0;
+            fprintf(stderr, "invalid tree object\n");
+            return 1;
         }
-        int whereEnd = regexec(&rx, uncompressed_contents, 1, &match, 0);
-        fwrite(uncompressed_contents + match.rm_eo + 1, 1, out_len - match.rm_eo - 1, stdout);
+
+        size_t pos = (p - data) + 1; // first tree entry
+
+        while (pos < out_len)
+        {
+
+            // skip mode
+            while (pos < out_len && data[pos] != ' ')
+                pos++;
+
+            if (pos >= out_len)
+                break;
+
+            pos++; // skip space
+
+            char *name = data + pos;
+
+            // find end of filename
+            while (pos < out_len && data[pos] != '\0')
+                pos++;
+
+            if (pos >= out_len)
+                break;
+
+            printf("%s\n", name);
+
+            pos++;     // skip NUL after filename
+            pos += 20; // skip SHA-1
+        }
+        // fwrite(uncompressed_contents + match.rm_eo + 1, 1, out_len - match.rm_eo - 1, stdout);
         free(uncompressed_contents);
         return 0;
     }
